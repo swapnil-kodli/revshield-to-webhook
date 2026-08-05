@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Configuration for the spam-detection accessibility service.
+
+  - We listen for window state + content changes so we catch the incoming-call UI when it
+    appears and when it updates (labels sometimes load a beat after the window opens).
+  - canRetrieveWindowContent=true is what lets us traverse the node tree; it is the whole
+    point of this PoC.
+  - We deliberately do NOT set android:packageNames here. Incoming-call UI package names vary
+    widely across OEMs (Google Dialer, Samsung InCallUI, MIUI, ColorOS, etc.), so we listen
+    broadly and filter to known dialer packages in code (see DialerPackages). To tighten the
+    scope on a known device, add android:packageNames with the observed dialer package.
+  - notificationTimeout throttles content-change spam.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows|flagReportViewIds"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/accessibility_service_description"
+    android:notificationTimeout="100" />

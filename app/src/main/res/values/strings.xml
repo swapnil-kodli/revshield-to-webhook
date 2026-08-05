@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RevShield Probe</string>
+    <string name="accessibility_service_label">RevShield Probe</string>
+    <string name="accessibility_service_description">Reads the incoming-call screen to record whether the phone app labelled the call as spam, then hangs up. Sends each record to your configured webhook.</string>
+</resources>

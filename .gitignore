@@ -1,0 +1,65 @@
+# NOTE: git does NOT support trailing inline comments on a pattern line — the "#" and everything
+# after it becomes part of the pattern. Every comment here is on its own line.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Secrets & runtime configuration — NEVER commit.
+# The Webhook URL is entered at RUNTIME in the app's Settings screen and stored only in the app's
+# private SharedPreferences ON THE DEVICE (/data/data/com.revshield.spamprobe/shared_prefs/
+# revshield-probe.xml). It is never part of the source tree. These patterns are a hard guard in case
+# a prefs dump, export, or credential file is ever pulled into the working directory.
+# ─────────────────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.jks
+*.keystore
+secrets.properties
+secrets.json
+shared_prefs/
+**/shared_prefs/
+revshield-probe.xml
+webhook*.txt
+webhook*.json
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Machine-specific — must be created locally by each developer.
+# local.properties holds YOUR Android SDK path (sdk.dir=...).
+# ─────────────────────────────────────────────────────────────────────────────
+local.properties
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Build output
+# ─────────────────────────────────────────────────────────────────────────────
+build/
+.gradle/
+.kotlin/
+captures/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.log
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Node (not used by this project, but guards an accidental tooling install)
+# ─────────────────────────────────────────────────────────────────────────────
+node_modules/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IDE / editor / OS
+# ─────────────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Stray source archives — never ship duplicate/stale snapshots of the source tree.
+*.zip
+*.tar
+*.tar.gz
