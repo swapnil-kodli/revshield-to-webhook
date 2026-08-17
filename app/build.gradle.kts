@@ -33,6 +33,7 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 dependencies {
@@ -64,4 +65,10 @@ dependencies {
     // HTTP upload — plain OkHttp + the RevShieldNet wire log
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
+    // Unit tests for the pure capture logic (classifier, session tracker, settings validation,
+    // wire serialisation). org.json is Android-provided at runtime; the JVM artifact lets the
+    // serializer be tested off-device.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

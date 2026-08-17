@@ -36,6 +36,13 @@ interface ObservationDao {
     @Query("SELECT COUNT(*) FROM observations")
     fun observeTotal(): Flow<Int>
 
+    /** One-shot counts for the heartbeat payload. */
+    @Query("SELECT COUNT(*) FROM observations")
+    suspend fun countAll(): Int
+
+    @Query("SELECT COUNT(*) FROM observations WHERE syncState = :state")
+    suspend fun countByState(state: String): Int
+
     @Query("SELECT COUNT(*) FROM observations WHERE syncState = :state")
     fun observeCount(state: String): Flow<Int>
 

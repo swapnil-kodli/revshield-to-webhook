@@ -31,6 +31,13 @@ class ProbeSettings(context: Context) {
             prefs.edit().putString(KEY_HDR_VALUE, value.trim()).apply()
         }
 
+    /** When the last liveness heartbeat was accepted (epoch millis; 0 = never). */
+    var lastHeartbeatMillis: Long
+        get() = prefs.getLong(KEY_LAST_HEARTBEAT, 0L)
+        set(value) {
+            prefs.edit().putLong(KEY_LAST_HEARTBEAT, value).apply()
+        }
+
     /** True once a webhook URL is set. When false, records are held PENDING (never FAILED). */
     fun isConfigured(): Boolean = webhookUrl.isNotBlank()
 
@@ -39,6 +46,7 @@ class ProbeSettings(context: Context) {
         private const val KEY_URL = "webhook_url"
         private const val KEY_HDR_NAME = "webhook_header_name"
         private const val KEY_HDR_VALUE = "webhook_header_value"
+        private const val KEY_LAST_HEARTBEAT = "last_heartbeat_ms"
 
         /**
          * Validate a URL the operator is trying to SAVE.

@@ -372,6 +372,40 @@ normal, valid record.
 
 Note: `exact_label_text` is **absent** (nothing matched) and `detection_confidence` is `LOW`.
 
+### Heartbeat (liveness)
+
+Roughly **once an hour** the probe also POSTs a small heartbeat to the same URL. It exists so a
+silent probe is distinguishable from a quiet one: without it, "no spam calls today" and "capture
+died three days ago" look identical at the receiver.
+
+```json
+{
+  "type": "heartbeat",
+  "sent_at": "2026-08-17T13:08:53.355Z",
+  "capture_enabled": true,
+  "app_version": "1.0.0",
+  "manufacturer": "LAVA",
+  "model": "LAVA LZG412",
+  "android_version": "15",
+  "records_total": 150,
+  "records_pending": 0,
+  "records_failed": 0
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `type` | Always `"heartbeat"` — **branch on this** to keep heartbeats out of your observations table. Call records have no `type` field. |
+| `capture_enabled` | Whether the accessibility service is actually armed. **`false` means calls are NOT being recorded** even though the app is alive — alert on it. |
+| `records_pending` / `records_failed` | Outbox depth. Persistently rising = your endpoint is rejecting or the device is offline. |
+
+**Alert on two conditions:** `capture_enabled: false`, and *no heartbeat for >2 hours* (probe offline,
+app force-stopped, or device off).
+
+> Force-stopping the app — via an OEM battery manager or swiping it out of recents — makes Android
+> **de-register the accessibility service**, and reopening the app does *not* re-arm it. It must be
+> re-enabled in Settings → Accessibility. The heartbeat is how you find out.
+
 ---
 
 ## F. Receiving & integrating
@@ -398,6 +432,11 @@ Practical guidance:
 - The endpoint must be **HTTPS** with a certificate valid to the phone.
 - Records are queued while offline and flushed automatically when connectivity returns, so expect
   bursts and out-of-order arrival. Order by `observed_at`, not arrival time.
+- **Handle bursts.** A backlog drains in a continuous loop — measured at **150 records in ~103 s** —
+  so your endpoint must tolerate sustained POSTs. Free tiers of inspection services (webhook.site
+  included) rate-limit around ~50 requests and will start returning 429, which the probe correctly
+  records as `Failed` and retries. Use a real endpoint for production.
+- Ignore or route `type: "heartbeat"` bodies separately (see above).
 
 Minimal receiver:
 
