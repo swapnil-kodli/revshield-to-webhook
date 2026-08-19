@@ -16,6 +16,10 @@ interface ObservationDao {
     @Query("SELECT * FROM observations WHERE syncState != 'SYNCED' AND attempts < :maxAttempts ORDER BY createdAt ASC LIMIT :limit")
     suspend fun uploadable(limit: Int, maxAttempts: Int): List<ObservationRecord>
 
+    /** Fill in a caller number the carrier masked on screen. Never overwrites a captured number. */
+    @Query("UPDATE observations SET callerNumber = :number WHERE id = :id AND callerNumber IS NULL")
+    suspend fun backfillCallerNumber(id: String, number: String)
+
     /** Delivered — the ONLY transition to SYNCED, made only on a verified 2xx. */
     @Query("UPDATE observations SET syncState = 'SYNCED', failReason = NULL WHERE id = :id")
     suspend fun markSynced(id: String)

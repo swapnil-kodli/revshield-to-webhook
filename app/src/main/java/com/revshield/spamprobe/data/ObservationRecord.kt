@@ -19,7 +19,16 @@ object SyncState {
 data class ObservationRecord(
     @PrimaryKey val id: String,
     val timestamp: String,
+    /** Strongest verdict seen from ANY source - used for the in-app display. */
     val spamStatus: String,
+    /** Verdict read from the NATIVE dialer UI (the carrier / built-in caller-ID label). */
+    val airtelStatus: String = "NONE",
+    /** Verdict read from Truecaller's own UI. */
+    val truecallerStatus: String = "NONE",
+    /** Exactly what the native dialer displayed, e.g. "Airtel Warning: SPAM" or "Sapna Kodliwadmath". */
+    val airtelDisplay: String? = null,
+    /** Exactly what Truecaller's banner displayed, e.g. "Likely Spam" or "Mana Projects". */
+    val truecallerDisplay: String? = null,
     val exactLabelText: String?,
     val detectionConfidence: String?,
     val rawTree: String, // JSON text of the full raw accessibility tree

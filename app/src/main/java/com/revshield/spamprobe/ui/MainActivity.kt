@@ -37,8 +37,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         // Request ANSWER_PHONE_CALLS so TelecomManager.endCall() can auto-reject after capture.
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ANSWER_PHONE_CALLS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.ANSWER_PHONE_CALLS), 1)
+        // READ_CALL_LOG recovers the caller number when the carrier masks it behind a spam warning.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ANSWER_PHONE_CALLS) != PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.ANSWER_PHONE_CALLS, Manifest.permission.READ_CALL_LOG), 1)
         }
         setContent { RevShieldTheme { App(vm) } }
     }

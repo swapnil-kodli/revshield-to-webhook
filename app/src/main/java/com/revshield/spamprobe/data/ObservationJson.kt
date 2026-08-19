@@ -1,27 +1,54 @@
 package com.revshield.spamprobe.data
 
 import org.json.JSONObject
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
-/** The observation wire body POSTed to the webhook (snake_case; raw tree nested). Sent UNCHANGED. */
+/**
+ * The observation wire body POSTed to the webhook — exactly FOUR fields:
+ *
+ *   phone_number        the number that called the probe
+ *   airtel_status       "SPAM | Airtel Warning: SPAM"  /  "NOT SPAM | Sapna Kodliwadmath"
+ *   call_received_time  local 12-hour clock, e.g. "07:23 pm"
+ *   truecaller_status   "SPAM | Likely Spam"           /  "NOT SPAM | Mana Projects"
+ *
+ * Each status is a plain SPAM / NOT SPAM verdict, followed by whatever that source actually put on
+ * screen so the raw wording is preserved. Nothing else is sent.
+ */
 object ObservationJson {
-    fun toWire(r: ObservationRecord): String {
-        val o = JSONObject()
-            .put("id", r.id)
-            // observed_at = the phone's capture time, UTC ISO 8601 (Instant.toString() is always UTC 'Z').
-            // `timestamp` is kept as a legacy alias so older Control Center builds still read the capture time.
-            .put("observed_at", r.timestamp)
-            .put("timestamp", r.timestamp)
-            .put("spam_status", r.spamStatus)
-            .put("raw_accessibility_tree", JSONObject(r.rawTree))
-            .put("android_version", r.androidVersion)
-            .put("manufacturer", r.manufacturer)
-            .put("model", r.model)
-            .put("app_version", r.appVersion)
-        r.exactLabelText?.let { o.put("exact_label_text", it) }
-        r.detectionConfidence?.let { o.put("detection_confidence", it) }
-        r.callerNumber?.let { o.put("caller_number", it) }
-        r.dialerPackage?.let { o.put("dialer_package", it) }
-        r.carrier?.let { o.put("carrier", it) }
-        return o.toString()
+
+    /** Any spam-ish verdict collapses to SPAM; a clean or merely unidentified caller is NOT SPAM. */
+    private fun verdict(status: String?): String = when (status?.uppercase()) {
+        "SPAM", "SUSPECTED_SPAM", "FRAUD_RISK" -> "SPAM"
+        else -> "NOT SPAM"
     }
+
+    /** "SPAM | Airtel Warning: SPAM", or just "NOT SPAM" when the source displayed nothing useful. */
+    private fun field(status: String?, display: String?): String {
+        val v = verdict(status)
+        val d = display?.trim()
+        return if (d.isNullOrEmpty()) v else "$v | $d"
+    }
+
+    private val CLOCK: DateTimeFormatter = DateTimeFormatter.ofPattern("hh:mm a", Locale.US)
+
+    /** UTC ISO -> local 12-hour clock, e.g. "07:23 pm". Falls back to the raw value if unparseable. */
+    internal fun localClock(iso: String?): String {
+        if (iso.isNullOrBlank()) return ""
+        return try {
+            Instant.parse(iso).atZone(ZoneId.systemDefault()).format(CLOCK).lowercase(Locale.US)
+        } catch (_: Exception) {
+            iso
+        }
+    }
+
+    fun toWire(r: ObservationRecord): String =
+        JSONObject()
+            .put("phone_number", r.callerNumber ?: JSONObject.NULL)
+            .put("airtel_status", field(r.airtelStatus, r.airtelDisplay))
+            .put("call_received_time", localClock(r.timestamp))
+            .put("truecaller_status", field(r.truecallerStatus, r.truecallerDisplay))
+            .toString()
 }

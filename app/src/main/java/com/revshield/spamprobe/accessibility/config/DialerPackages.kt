@@ -49,4 +49,26 @@ object DialerPackages {
         val pkg = packageName.toString()
         return NATIVE.contains(pkg) || (includeThirdParty && THIRD_PARTY.contains(pkg))
     }
+
+    /**
+     * Surfaces that render an incoming call as a heads-up BANNER instead of a full screen (when the
+     * phone is unlocked and in use). The banner is drawn by SystemUI, not the dialer, so without
+     * these a call answered-from-banner is never captured at all. Only consulted while a call is
+     * actually ringing, so ordinary SystemUI chrome cannot leak in.
+     */
+    val CALL_BANNER: Set<String> = setOf(
+        "com.android.systemui",
+        "com.miui.systemui.plugin",
+    )
+
+    fun isCallBanner(packageName: CharSequence?): Boolean =
+        packageName != null && CALL_BANNER.contains(packageName.toString())
+
+    /** True if [packageName] is the NATIVE OS dialer — i.e. a carrier / built-in caller-ID verdict. */
+    fun isNative(packageName: CharSequence?): Boolean =
+        packageName != null && NATIVE.contains(packageName.toString())
+
+    /** True if [packageName] is a third-party caller-ID app (Truecaller/Hiya) — its OWN verdict. */
+    fun isThirdParty(packageName: CharSequence?): Boolean =
+        packageName != null && THIRD_PARTY.contains(packageName.toString())
 }

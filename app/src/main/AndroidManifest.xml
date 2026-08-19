@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       INTERNET: POST each observation to the operator-configured webhook (any network — cellular or
@@ -11,6 +12,27 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+    <!--
+      READ_CALL_LOG: when the carrier MASKS the caller number behind its spam warning (Airtel does
+      this), the number never appears on screen. It is still recorded in the call log, so the probe
+      backfills phone_number from there after the call ends. Read-only, local, never uploaded beyond
+      the phone_number field the webhook already expects.
+    -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+
+    <!--
+      The probe must never silently stop. MIUI's memory cleaner was observed killing this process
+      ("OneKeyClean"), after which Android marks the accessibility service crashed and NEVER rebinds
+      it. A foreground service keeps the process at a priority cleaners skip; the watchdog re-arms
+      capture if it is ever switched off. WRITE_SECURE_SETTINGS is granted over adb on this dedicated
+      handset so the app can re-enable its own accessibility service.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <!--
       No cleartext: the webhook URL is validated as https:// on save, so all uploads are TLS.
@@ -31,6 +53,25 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".keepalive.ProbeKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps carrier spam-label capture running on a dedicated measurement handset" />
+        </service>
+
+        <receiver
+            android:name=".keepalive.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".accessibility.CallCaptureService"

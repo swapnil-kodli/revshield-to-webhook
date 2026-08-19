@@ -22,7 +22,8 @@ access (cellular or any Wi-Fi) and a webhook URL you paste into Settings at runt
              ▼
    ┌──────────────────────────────────────────────────────┐
    │ AccessibilityService (CallCaptureService)            │
-   │  • only NATIVE dialer packages are inspected         │
+   │  • native dialer AND Truecaller are read separately  │
+   │  • full-screen call UI *and* heads-up banners        │
    │  • scrapes the on-screen node tree                   │
    │  • classifies the carrier's spam label               │
    │  • collapses the event burst into ONE record         │
@@ -49,9 +50,16 @@ access (cellular or any Wi-Fi) and a webhook URL you paste into Settings at runt
 **Capture fully, then reject — never before.** The record is written first; hang-up happens only
 after the observation is final.
 
-Only **native OS dialer** packages are read (AOSP/Google, Samsung, Xiaomi/MIUI, OnePlus/Oppo/Realme,
-Vivo), so a detected label is attributable to the carrier / built-in caller ID — not to a
-third-party app like Truecaller (those are listed but opt-in and off by default).
+**Two sources, reported separately.** The **native OS dialer** (AOSP/Google, Samsung, Xiaomi/MIUI,
+OnePlus/Oppo/Realme, Vivo) carries the carrier / built-in caller-ID verdict → `airtel_status`.
+**Truecaller** renders its own crowdsourced verdict in a separate window → `truecaller_status`.
+Either can flag a call the other did not.
+
+**Staying alive.** Aggressive OEM cleaners kill background apps — MIUI's was observed killing this
+one mid-session, after which Android marks the accessibility service crashed and never rebinds it.
+A foreground service plus a watchdog (which re-arms capture via `WRITE_SECURE_SETTINGS` when granted)
+keeps the probe running; if it ever cannot recover, the notification says so rather than failing
+silently. See section G.
 
 ---
 
@@ -144,6 +152,18 @@ adb logcat -s RevShieldNet:* RevShield:* AndroidRuntime:*
 
 ## C. Install & configure on the phone
 
+> **Handset requirement — read this first.** Airtel's spam alerts are only delivered to a
+> **VoLTE-enabled** handset (per Airtel's own terms). On a phone whose IMS never registers, the
+> carrier sends no caller name at all, every call arrives with `name=NULL`, and **no app or dialer
+> can display a label that was never sent**. Verify before blaming the probe:
+> ```bash
+> adb shell dumpsys telephony.registry | grep registrationState   # want HOME, not NOT_REG_OR_SEARCHING
+> adb shell content query --uri call_log/calls --projection name:number:type
+> ```
+> A budget handset that fails this will silently report `NOT SPAM` for every call.
+
+
+
 1. **Sideload the APK.** Either `./gradlew.bat :app:installDebug`, or copy
    `app-debug.apk` to the phone and open it. Allow "install unknown apps" for the installing app
    (Files/Chrome) if prompted.
@@ -152,8 +172,9 @@ adb logcat -s RevShieldNet:* RevShield:* AndroidRuntime:*
 3. **Restricted settings (Android 13+).** Sideloaded apps are blocked from enabling accessibility
    until you allow it: **Settings → Apps → RevShield Probe → ⋮ (top-right) → Allow restricted
    settings**.
-4. **Grant the phone-calls permission.** Open the app — it requests `ANSWER_PHONE_CALLS` on first
-   launch (needed to auto-reject after capture). Accept.
+4. **Grant the permissions.** On first launch the app requests `ANSWER_PHONE_CALLS` (to auto-reject
+   after capture) and `READ_CALL_LOG` (to recover a caller number the carrier masked on screen).
+   Accept both.
 5. **Enable the accessibility service:** **Home → Open Accessibility settings → RevShield Probe →
    On**. Return to the app; Home flips to **"Capture service: ON"** by itself.
 6. **Keep it alive on aggressive OEMs (Vivo/Oppo/Realme/Xiaomi).** Battery managers freeze
@@ -225,188 +246,57 @@ marked. Uploads run in batches of 50, immediately on capture, when connectivity 
 
 ## E. The webhook payload
 
-Each observation is delivered as **one POST per record**:
+Each observation is delivered as **one POST per call**:
 
 - **Method:** `POST` · **Content-Type:** `application/json`
-- **Body:** the observation object below — no envelope, no wrapper, no reshaping
+- **Body:** exactly the four fields below — nothing else
 - **Headers:** none required. If you configure the optional custom header in Settings, it is added.
 
-### Field reference
-
-Fields marked *always* are present on every record. The rest are **omitted entirely** (not `null`)
-when the value is unavailable.
-
-| Field | Type | Presence | Example | Meaning |
-|---|---|---|---|---|
-| `id` | string (UUID) | always | `"6f9b2c1e-6f2a-4b7d-9d3e-3f0f1c2a7b55"` | Per-call session id. All accessibility events for one call collapse into this single id — use it as your idempotency/dedupe key. |
-| `observed_at` | string (ISO 8601, UTC) | always | `"2026-08-05T09:14:22.317Z"` | When the phone captured the call — the true event time. Always UTC (`Z`). |
-| `timestamp` | string (ISO 8601, UTC) | always | `"2026-08-05T09:14:22.317Z"` | **Legacy alias — identical value to `observed_at`.** Kept for backwards compatibility; prefer `observed_at`. |
-| `spam_status` | enum string | always | `"SPAM"` | The label verdict. See the enum table below. |
-| `raw_accessibility_tree` | object | always | see below | The complete call-screen node hierarchy at capture time. |
-| `android_version` | string | always | `"13"` | `Build.VERSION.RELEASE` of the observing device. |
-| `manufacturer` | string | always | `"vivo"` | `Build.MANUFACTURER`. |
-| `model` | string | always | `"V2027"` | `Build.MODEL`. |
-| `app_version` | string | always | `"1.0.0"` | Probe build that produced the record. |
-| `exact_label_text` | string | omitted if no match | `"Airtel Warning: SPAM"` | The **verbatim on-screen text** that produced the verdict. Absent when `spam_status` is `NONE`. |
-| `detection_confidence` | enum string | omitted if null | `"MEDIUM"` | How the label matched: `HIGH` / `MEDIUM` / `LOW`. See below. |
-| `caller_number` | string | **often absent** | `"+919812345678"` | The caller's number **if the call screen exposed it**. Absent for withheld/private numbers, contact-name-only screens, and — importantly — when the carrier **replaces the number with the spam label**. A record with a label but no number is normal and valid. |
-| `dialer_package` | string | omitted if null | `"com.vivo.dialer"` | The native dialer package that rendered the screen. |
-| `carrier` | string | omitted if null | `"airtel"` | Network operator name on the observing SIM (`TelephonyManager.networkOperatorName`) — i.e. whose labelling is being read. |
-
-### `spam_status` values
-
-| Value | Meaning |
-|---|---|
-| `SPAM` | Screen said spam outright — matched `spam`, `scam`, `scam likely`, or `telemarketer`. |
-| `SUSPECTED_SPAM` | Hedged wording — `suspected spam`, `spam suspected`, `likely spam`, `spam likely`, `possible spam`, `spam risk`. |
-| `FRAUD_RISK` | Fraud wording — `fraud risk`, `fraud suspected`, `suspected fraud`, `fraud`. |
-| `UNKNOWN` | Unidentified-caller wording — `unknown caller`, `no caller id`, `private number`, `unknown`. |
-| `NONE` | **No spam indicator found on screen.** A clean call. Also the value when the carrier applied no label at all. |
-
-Matching is case-insensitive and ordered most-specific-first, so `"suspected spam"` is never
-mis-reported as plain `SPAM`.
-
-### `detection_confidence` — how it is derived
-
-| Level | How it was matched |
-|---|---|
-| `HIGH` | The node's **entire text is the label** — a dedicated label view, e.g. a view reading exactly `"Spam"` (edge punctuation stripped). |
-| `MEDIUM` | The label keyword appears as a **whole word inside a short heading or caller name** (≤ 80 chars), e.g. `"Airtel Warning: SPAM"`. Word boundaries prevent false hits like `"Spammy Corp Ltd"`. |
-| `LOW` | No label matched — accompanies `spam_status: "NONE"`. |
-
-**False-positive guards** (why a "Report spam" button never produces a SPAM record): clickable nodes
-and `Button`-class views are dropped, as is any text containing `?` or an action word (`report`,
-`block`, `unblock`, `mark`, `flag`, `not spam`, `is this`, `add `, `save`, `search`).
-
-### `raw_accessibility_tree`
-
-The full node hierarchy of the call screen, captured on **every** observation — even a confident
-one — so verdicts can be re-derived later as new carrier formats are learned, and so you can audit
-exactly what the dialer displayed. Capped at 400 nodes.
-
-Each node: `className`, `viewIdResourceName`, `text`, `contentDescription` (each omitted when the
-platform returns null), plus `clickable` (boolean) and `bounds` (`"[left,top][right,bottom]"`) and
-`children` (array), which are always present.
-
-Layouts are **OEM- and version-specific** — a Vivo call screen looks nothing like a Samsung one — so
-treat this as diagnostic evidence, not a stable schema to parse in production.
-
-### Example 1 — a carrier-labelled SPAM call
-
 ```json
 {
-  "id": "6f9b2c1e-6f2a-4b7d-9d3e-3f0f1c2a7b55",
-  "observed_at": "2026-08-05T09:14:22.317Z",
-  "timestamp": "2026-08-05T09:14:22.317Z",
-  "spam_status": "SPAM",
-  "raw_accessibility_tree": {
-    "className": "android.widget.FrameLayout",
-    "clickable": false,
-    "bounds": "[0,0][1080,2400]",
-    "children": [
-      {
-        "className": "android.widget.TextView",
-        "viewIdResourceName": "com.vivo.dialer:id/caller_name",
-        "text": "Airtel Warning: SPAM",
-        "clickable": false,
-        "bounds": "[64,412][1016,498]",
-        "children": []
-      },
-      {
-        "className": "android.widget.Button",
-        "viewIdResourceName": "com.vivo.dialer:id/decline",
-        "contentDescription": "Decline",
-        "clickable": true,
-        "bounds": "[120,2020][320,2220]",
-        "children": []
-      }
-    ]
-  },
-  "android_version": "13",
-  "manufacturer": "vivo",
-  "model": "V2027",
-  "app_version": "1.0.0",
-  "exact_label_text": "Airtel Warning: SPAM",
-  "detection_confidence": "MEDIUM",
-  "dialer_package": "com.vivo.dialer",
-  "carrier": "airtel"
-}
-```
-
-Note: **no `caller_number`** — the carrier replaced the number with the warning text. That is a
-normal, valid record.
-
-### Example 2 — an unlabelled (clean) call
-
-```json
-{
-  "id": "b31d77a4-0c58-4a0e-9b21-8e5c4a1d0f92",
-  "observed_at": "2026-08-05T10:02:41.884Z",
-  "timestamp": "2026-08-05T10:02:41.884Z",
-  "spam_status": "NONE",
-  "raw_accessibility_tree": {
-    "className": "android.widget.FrameLayout",
-    "clickable": false,
-    "bounds": "[0,0][1080,2400]",
-    "children": [
-      {
-        "className": "android.widget.TextView",
-        "viewIdResourceName": "com.vivo.dialer:id/caller_number",
-        "text": "+919812345678",
-        "clickable": false,
-        "bounds": "[64,412][1016,498]",
-        "children": []
-      }
-    ]
-  },
-  "android_version": "13",
-  "manufacturer": "vivo",
-  "model": "V2027",
-  "app_version": "1.0.0",
-  "detection_confidence": "LOW",
-  "caller_number": "+919812345678",
-  "dialer_package": "com.vivo.dialer",
-  "carrier": "airtel"
-}
-```
-
-Note: `exact_label_text` is **absent** (nothing matched) and `detection_confidence` is `LOW`.
-
-### Heartbeat (liveness)
-
-Roughly **once an hour** the probe also POSTs a small heartbeat to the same URL. It exists so a
-silent probe is distinguishable from a quiet one: without it, "no spam calls today" and "capture
-died three days ago" look identical at the receiver.
-
-```json
-{
-  "type": "heartbeat",
-  "sent_at": "2026-08-17T13:08:53.355Z",
-  "capture_enabled": true,
-  "app_version": "1.0.0",
-  "manufacturer": "LAVA",
-  "model": "LAVA LZG412",
-  "android_version": "15",
-  "records_total": 150,
-  "records_pending": 0,
-  "records_failed": 0
+  "phone_number": "+917965854235",
+  "airtel_status": "SPAM | Airtel Warning: SPAM",
+  "call_received_time": "07:23 pm",
+  "truecaller_status": "NOT SPAM | Mana Projects"
 }
 ```
 
 | Field | Meaning |
 |---|---|
-| `type` | Always `"heartbeat"` — **branch on this** to keep heartbeats out of your observations table. Call records have no `type` field. |
-| `capture_enabled` | Whether the accessibility service is actually armed. **`false` means calls are NOT being recorded** even though the app is alive — alert on it. |
-| `records_pending` / `records_failed` | Outbox depth. Persistently rising = your endpoint is rejecting or the device is offline. |
+| `phone_number` | The number that called the probe. `null` only if the carrier masked it on screen **and** it could not be recovered from the call log. |
+| `airtel_status` | What the **native dialer** showed — i.e. the carrier / built-in caller-ID verdict. |
+| `call_received_time` | Local 12-hour clock, e.g. `07:23 pm`. No date — records are expected to be consumed the same day. |
+| `truecaller_status` | What **Truecaller's** own banner showed. Independent of `airtel_status`. |
 
-**Alert on two conditions:** `capture_enabled: false`, and *no heartbeat for >2 hours* (probe offline,
-app force-stopped, or device off).
+### Status format
 
-> Force-stopping the app — via an OEM battery manager or swiping it out of recents — makes Android
-> **de-register the accessibility service**, and reopening the app does *not* re-arm it. It must be
-> re-enabled in Settings → Accessibility. The heartbeat is how you find out.
+Both status fields read `VERDICT | what that source displayed`:
 
----
+```
+SPAM | Airtel Warning: SPAM      carrier flagged it, with its exact wording
+SPAM | Likely Spam               Truecaller flagged it
+NOT SPAM | Mana Projects         Truecaller identified a legitimate business
+NOT SPAM | Sapna Kodliwadmath    a known contact
+NOT SPAM                         nothing identifying was displayed
+```
+
+- **`SPAM`** when that source showed spam, suspected-spam or fraud wording.
+- **`NOT SPAM`** otherwise — including unknown/unidentified callers.
+- The text after `|` is the **verbatim on-screen wording**, so the raw carrier/Truecaller phrasing is never lost.
+
+The two sources are **independent**: Truecaller can flag a call the carrier did not, and vice versa.
+
+### Carrier-masked numbers
+
+Airtel replaces the caller number with its warning, so the number never appears on screen. The probe
+then recovers it from the **call log** after the call ends (requires `READ_CALL_LOG`), so
+`phone_number` is still populated on exactly the spam calls that matter most.
+
+### Full-screen and banner calls
+
+Both are captured. A call arriving while the phone is in use renders as a **heads-up banner** drawn
+by SystemUI rather than a full-screen dialer window; the probe monitors both surfaces, gated on the
+phone actually ringing so ordinary notifications are never mistaken for calls.
 
 ## F. Receiving & integrating
 
